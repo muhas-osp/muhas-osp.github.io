@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 import os
 import sys
 import tempfile
@@ -256,6 +257,12 @@ def write_json_atomic(path: Path, data: Any) -> bool:
     return True
 
 
+def annotate(level: str, message: str) -> None:
+    """Show a one-line summary on the GitHub Actions run page (no-op elsewhere)."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::{level} title=REDCap fetch::{message}", flush=True)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -264,6 +271,7 @@ def main() -> int:
     if not token:
         # not configured yet (e.g. first deployment): keep the current data and let the site deploy
         log.warning("REDCAP_GRANTS_TOKEN is not set; existing grants.json kept unchanged")
+        annotate("warning", "REDCAP_GRANTS_TOKEN secret is not set or empty; nothing fetched")
         return 0
 
     form = os.environ.get("REDCAP_FORM", "grant_details")
@@ -275,6 +283,7 @@ def main() -> int:
         records = fetch_records(api_url, token, form)
     except RuntimeError as exc:
         log.error("fetch failed: %s", exc)  # token is never logged
+        annotate("error", f"fetch failed: {exc}")
         return 2
 
     grants = publishable_grants(records, today, require_verified)
@@ -282,6 +291,9 @@ def main() -> int:
     log.info("%d records fetched, %d published as of %s; %s %s",
              len(records), len(grants), today.isoformat(),
              "wrote" if changed else "unchanged", output)
+    statuses = Counter(_clean(r.get("osp_status")) or "(blank)" for r in records)
+    annotate("notice", f"{len(records)} records fetched, {len(grants)} published. OSP status: "
+             + "; ".join(f"{k} = {v}" for k, v in sorted(statuses.items())))
     return 0
 
 
