@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Funding Opportunities | MUHAS</title>
+<meta name="description" content="OSP-verified research funding calls for MUHAS researchers: deadlines, eligibility and award budgets at a glance.">
+<meta property="og:title" content="Funding Opportunities | MUHAS">
+<meta property="og:description" content="OSP-verified research funding calls for MUHAS researchers.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../assets/osp.css">
+<script src="../assets/opportunities.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <div class="header-inner">
+    <a class="brand" href="../"><b>MUHAS</b><span>OFFICE OF SPONSORED<br>PROGRAMMES</span></a>
+    <nav aria-label="Site">
+      <a href="../">OSP home</a>
+      <a href="./">Funding opportunities</a>
+      <a href="https://muhas.ac.tz/">MUHAS website ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <p class="eyebrow">VERIFIED BY MUHAS OSP</p>
+    <h1>Funding opportunities</h1>
+    <p class="lead">A quick snapshot of open research funding calls: who funds it, who can apply, how much, and when it closes.</p>
+    <p class="meta"><span id="fo-count">–</span> open calls · <span id="fo-updated">loading…</span></p>
+  </section>
+
+  <section class="board" aria-label="Funding calls">
+    <div class="controls" role="search">
+      <input type="search" id="fo-search" placeholder="Search title, funder, research area, reference…" aria-label="Search calls">
+      <select id="fo-funder" aria-label="Filter by funder"><option value="">All funders</option></select>
+      <select id="fo-stage" aria-label="Filter by career stage"><option value="">Any career stage</option></select>
+      <select id="fo-window" aria-label="Filter by deadline">
+        <option value="">Any deadline</option>
+        <option value="14">Closing in 14 days</option>
+        <option value="30">Closing in 30 days</option>
+        <option value="90">Closing in 90 days</option>
+        <option value="rolling">Rolling only</option>
+      </select>
+    </div>
+    <p class="disclaimer">Always confirm eligibility, budget and the exact deadline (including time zone) on the funder's call page before applying.</p>
+
+    <table class="fo-table" hidden>
+      <thead><tr>
+        <th scope="col">Deadline</th><th scope="col">Opportunity</th><th scope="col">Eligibility</th>
+        <th scope="col">Award</th><th scope="col"><span class="sr">Call link</span></th>
+      </tr></thead>
+      <tbody id="fo-rows"></tbody>
+    </table>
+    <p class="empty" id="fo-empty" hidden>No open calls match your filters.</p>
+    <p class="empty" id="fo-error" hidden>The funding list could not be loaded. Please refresh the page.</p>
+    <noscript><p class="empty">This page needs JavaScript to show the funding list.</p></noscript>
+  </section>
+</main>
+
+<footer><strong>MUHAS · Office of Sponsored Programmes</strong><span>Every call is checked by MUHAS OSP before it is listed</span><a href="https://muhas.ac.tz/">MUHAS website ↗</a></footer>
+</body>
+</html>

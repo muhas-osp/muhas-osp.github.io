@@ -1,0 +1,80 @@
+name: Refresh and deploy funding opportunities
+
+# Nightly: export OSP-verified calls from REDCap (utafiti.muhas.ac.tz), test,
+# commit data/grants.json if it changed, and deploy the static site to Pages.
+# Secret required: REDCAP_GRANTS_TOKEN (export-only API token, grants project).
+# Settings > Pages > Source must be "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      refresh_api:
+        description: Refresh from REDCap before publishing
+        type: boolean
+        default: true
+  schedule:
+    - cron: '7 21 * * *'   # 00:07 Africa/Dar_es_Salaam (21:07 UTC)
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: funding-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Test
+        run: python -m unittest discover -s tests -v
+
+      - name: Refresh verified calls from REDCap
+        if: github.event_name != 'workflow_dispatch' || inputs.refresh_api
+        env:
+          REDCAP_GRANTS_TOKEN: ${{ secrets.REDCAP_GRANTS_TOKEN }}
+          TZ: Africa/Dar_es_Salaam
+        run: python scripts/fetch_grants.py
+
+      - name: Save refreshed data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/grants.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Refresh funding opportunities ($(TZ=Africa/Dar_es_Salaam date +%F))"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+      - name: Stage public website
+        run: python scripts/stage_site.py
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy funding opportunities site
+        id: deployment
+        uses: actions/deploy-pages@v4
