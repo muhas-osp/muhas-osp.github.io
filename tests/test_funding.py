@@ -99,7 +99,7 @@ class Writing(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'grants.json'
             p.write_text('["KEEP"]')
-            env = {'REDCAP_GRANTS_TOKEN': 'x', 'GRANTS_OUTPUT': str(p)}
+            env = {'REDCAP_GRANTS_TOKEN': 'x', 'GRANTS_OUTPUT': str(p), 'GITHUB_ACTIONS': ''}
             with patch.dict('os.environ', env), \
                  patch.object(fg, 'fetch_records', side_effect=RuntimeError('down')):
                 self.assertEqual(fg.main(), 2)
@@ -109,7 +109,7 @@ class Writing(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'grants.json'
             p.write_text('["KEEP"]')
-            with patch.dict('os.environ', {'REDCAP_GRANTS_TOKEN': '', 'GRANTS_OUTPUT': str(p)}):
+            with patch.dict('os.environ', {'REDCAP_GRANTS_TOKEN': '', 'GRANTS_OUTPUT': str(p), 'GITHUB_ACTIONS': ''}):
                 self.assertEqual(fg.main(), 0)
             self.assertEqual(p.read_text(), '["KEEP"]')
 
