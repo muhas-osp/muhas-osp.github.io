@@ -85,36 +85,26 @@ Do not commit import files to this public repository.
 
 ## Weekly funding digest (email)
 
-Every Monday at 06:37 EAT, `.github/workflows/weekly-digest.yml` runs `scripts/queue_digest.py`:
+`.github/workflows/weekly-digest.yml` runs daily at 06:37 EAT (`scripts/queue_digest.py`):
 
-* **Weekly** (default preference): calls new since the last digest, plus calls closing within 30 days.
-  Not sent in a week with neither.
-* **Monthly** (staff who chose it): all open calls, on the first run of each month.
-* **Who**: staff directory categories 1–3 (academic, adjunct/honorary, emeritus), not retired/left,
-  funding alerts on, not unsubscribed.
+* **Monday**: builds the digest. **Weekly** (default): calls new since the last digest plus calls
+  closing within 30 days, skipped in a week with neither. **Monthly** (staff who chose it): all open
+  calls, first Monday of the month.
+* **Every day**: emails queued staff from **ospmuhas@gmail.com**, one email per person, at most
+  **499 per day** (Gmail limit); the rest go the next day. Academic, active staff go first.
+* **Who**: staff directory categories 1–3, not retired/left, funding alerts on, not unsubscribed, valid email.
+* Each email carries the person's own REDCap link to the `staff_preferences` survey (interests, frequency, unsubscribe).
 
-The script writes the digest into the `funding_digest` form of each recipient's staff record;
-a REDCap Alert sends it from utafiti.muhas.ac.tz. The script never reads emails or names
-(it exports only record_id, category, employment_status, pref_funding, alert_frequency,
-unsubscribed_all), and only call IDs are kept in `data/digest_state.json`.
+Privacy: addresses are exported from REDCap at send time and kept in memory only. Logs and
+`data/digest_state.json` hold counts, call IDs and record_ids, never addresses or names (a test checks this).
 
-### One-time setup (staff directory project)
+### Setup
 
-1. Download the current data dictionary, then
-   `python admin/append_dictionary.py <downloaded>.csv admin/staff_digest_fields.csv -o with_digest.csv`
-   and upload `with_digest.csv` (adds the `funding_digest` form).
-2. Make `staff_preferences` a survey (Online Designer → Enable as survey), so the email can carry a
-   preferences / unsubscribe link.
-3. Alerts & Notifications → Add alert:
-   * Trigger: *When conditional logic is TRUE during a form/survey save or data import*, logic
-     `[digest_queued] <> "" and datediff([digest_queued], "now", "m") < 60 and [email] <> ""`
-   * Send immediately; allow it to be sent **more than once per record**; tick *ensure logic is still true*.
-   * To: `[email]`. Subject: `[digest_subject]`. Body:
-     `Dear colleague,` / `[digest_body]` / `Update your interests or unsubscribe: [survey-link:staff_preferences:your preferences]`
-4. API token for `REDCAP_STAFF_TOKEN` (repository secret): API export + API import, view/edit
-   on `funding_digest`. Store it only as a GitHub secret.
-5. Test: Actions → *Weekly funding digest* → Run workflow with `dry_run` off and `only_records` = your
-   own record_id. Check the email, then let Monday's run go to everyone.
+1. Google account ospmuhas@gmail.com: turn on 2-Step Verification, then create an **App password**
+   (myaccount.google.com/apppasswords). Add it as repository secret `GMAIL_APP_PASSWORD`.
+2. REDCap staff project: API token with export rights (full data set, so `email` is included)
+   → repository secret `REDCAP_STAFF_TOKEN`. `staff_preferences` must be enabled as a survey.
+3. Test: Actions → *Weekly funding digest* → Run workflow, untick `dry_run`, and either put an address
+   in `test_to` (one sample) or your record_id in `only_records`.
 
-If REDCap mail cannot be used, the fallback is sending from ospmuhas@gmail.com (Gmail allows
-about 500 recipients a day, close to the current list size).
+Bounces and replies arrive in the ospmuhas@gmail.com inbox; fix those addresses in REDCap.

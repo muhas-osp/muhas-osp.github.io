@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-queue_digest.py: weekly funding digest for MUHAS staff, sent by REDCap Alerts.
+queue_digest.py: weekly funding digest for MUHAS staff, emailed from the OSP Gmail account.
 
-Builds the digest text from data/grants.json and writes it into the
-`funding_digest` instrument of each eligible record in the REDCap staff
-directory. A REDCap Alert (logic: digest queued within the last hour and an
-email on file) then emails it from utafiti.muhas.ac.tz, piping [email] and the
-preferences/unsubscribe survey link itself.
+Runs daily (GitHub Actions). On Mondays it builds the digest from data/grants.json and
+queues the eligible staff (by record_id). Every run sends to queued staff, at most
+DIGEST_DAILY_CAP (499) emails per day, one email per person; the rest wait for the next day.
 
-Privacy: this script never requests email or names. It exports only
-record_id, category, employment_status, pref_funding, alert_frequency and
-unsubscribed_all, and logs counts only.
+Who: staff directory categories 1-3 (academic, adjunct/honorary, emeritus), not retired/left,
+funding alerts on, not unsubscribed, with an email.
+  weekly (default)  new calls since the last digest + calls closing within 30 days;
+                    nothing is sent in a week with neither
+  monthly           staff who chose monthly: all open calls, first Monday of the month
 
-Who gets it: academic (1), adjunct/honorary (2) or emeritus (3) staff, not
-retired/left (status 4), funding alerts not switched off, not unsubscribed.
-  weekly (default) : new calls since the last digest + calls closing within 30 days;
-                     skipped when both are empty
-  monthly          : first Monday-run of the month, all open calls
+Privacy: emails are read from REDCap at send time and kept in memory only. Logs and
+data/digest_state.json contain counts and record_ids, never addresses or names.
 
 Environment:
-  REDCAP_STAFF_TOKEN   staff-project token: export (those fields) + import (funding_digest)
-  REDCAP_API_URL       default https://utafiti.muhas.ac.tz/api/
-  DIGEST_DRY_RUN       "1": build and report, write nothing to REDCap or state
-  DIGEST_ONLY_RECORDS  comma-separated record_ids (testing: e.g. your own record)
-  DIGEST_FORCE         "1": send even when there is nothing new or closing
-Exit codes: 0 ok (including nothing to send), 1 configuration error, 2 API error.
+  REDCAP_STAFF_TOKEN   staff-project token (export: record_id, email, category, status, preferences)
+  GMAIL_USER           default ospmuhas@gmail.com
+  GMAIL_APP_PASSWORD   Google app password for that account
+  DIGEST_DAILY_CAP     default 499
+  DIGEST_DRY_RUN       "1": build and count, send nothing, change no state
+  DIGEST_ONLY_RECORDS  comma-separated record_ids: send this week's digest to them only (testing)
+  DIGEST_TEST_TO       an address: send one sample to it only (testing)
+  DIGEST_FORCE         "1": build a new digest now even if it is not Monday or nothing is new
+Exit codes: 0 ok, 1 configuration error, 2 REDCap/mail error.
 """
 from __future__ import annotations
 
@@ -32,8 +32,12 @@ import importlib.util
 import json
 import os
 import re
+import smtplib
 import sys
+import time
 from datetime import date, datetime, timedelta
+from email.message import EmailMessage
+from email.utils import formataddr, make_msgid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -45,10 +49,11 @@ _spec.loader.exec_module(fg)
 TZ = ZoneInfo("Africa/Dar_es_Salaam")
 BOARD_URL = "https://muhas-osp.github.io/opportunities/"
 CLOSING_DAYS = 30
-STAFF_FIELDS = ["record_id", "category", "employment_status", "pref_funding",
+STAFF_FIELDS = ["record_id", "email", "category", "employment_status", "pref_funding",
                 "alert_frequency", "unsubscribed_all"]
 ELIGIBLE_CATEGORIES = {"1", "2", "3"}
 STATE_FILE = ROOT / "data/digest_state.json"
+EMAIL_RE = re.compile(r"^[^@\s,]+@[^@\s,]+\.[a-z]{2,}$", re.I)
 
 
 def annotate(level: str, message: str) -> None:
@@ -58,7 +63,6 @@ def annotate(level: str, message: str) -> None:
 
 
 def safe(text: str) -> str:
-    """The MUHAS server firewall rejects ';' and markup in REDCap requests."""
     text = re.sub(r"\s*;\s*", ", ", str(text or ""))
     return " ".join(text.replace("<", "(").replace(">", ")").split())
 
@@ -68,9 +72,9 @@ def fmt_date(iso: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Digest content (pure functions, tested)
+# Digest content (pure, tested)
 # --------------------------------------------------------------------------- #
-def classify(grants: list[dict], sent_ids: set[str], today: date):
+def classify(grants, sent_ids, today):
     soon = today + timedelta(days=CLOSING_DAYS)
     new = [g for g in grants if g["id"] not in sent_ids]
     closing = [g for g in grants if g.get("next_deadline")
@@ -78,14 +82,13 @@ def classify(grants: list[dict], sent_ids: set[str], today: date):
     return new, closing
 
 
-def entry(g: dict, today: date) -> str:
+def entry(g, today):
     lines = [f"* {safe(g['funder_name'])}: {safe(g['grant_title'])}"]
-    if g.get("rolling") and not g.get("next_deadline"):
-        when = "Rolling, apply any time"
-    else:
+    if g.get("next_deadline"):
         days = (date.fromisoformat(g["next_deadline"]) - today).days
-        when = f"Deadline {fmt_date(g['next_deadline'])} ({days} days left)"
-    extra = [when]
+        extra = [f"Deadline {fmt_date(g['next_deadline'])} ({days} days left)"]
+    else:
+        extra = ["Rolling, apply any time"]
     if g.get("award_budget"):
         extra.append(f"Award: {safe(g['award_budget'])}")
     if g.get("tz_eligibility") and g["tz_eligibility"] != "Eligible":
@@ -97,9 +100,8 @@ def entry(g: dict, today: date) -> str:
     return "\n".join(lines)
 
 
-def build_digest(kind: str, grants: list[dict], sent_ids: set[str], today: date) -> tuple[str, str] | None:
-    """Returns (subject, body) or None when a weekly digest has nothing to say."""
-    week = today.strftime("%-d %b %Y")
+def build_digest(kind, grants, sent_ids, today):
+    """(subject, body) or None when a weekly digest has nothing to say."""
     if kind == "monthly":
         if not grants:
             return None
@@ -116,31 +118,50 @@ def build_digest(kind: str, grants: list[dict], sent_ids: set[str], today: date)
         if closing:
             body += [f"CLOSING IN THE NEXT {CLOSING_DAYS} DAYS ({len(closing)})", ""] + \
                     [entry(g, today) + "\n" for g in closing]
-        parts = [f"{len(new)} new"] if new else []
-        parts += [f"{len(closing)} closing soon"] if closing else []
-        subject = f"MUHAS funding opportunities: {', '.join(parts)} (week of {week})"
+        parts = ([f"{len(new)} new"] if new else []) + ([f"{len(closing)} closing soon"] if closing else [])
+        subject = f"MUHAS funding opportunities: {', '.join(parts)} (week of {today.strftime('%-d %b %Y')})"
     body += [f"All {len(grants)} open calls, with filters: {BOARD_URL}",
              "Questions or help with an application: Office of Sponsored Programmes, ospmuhas@gmail.com"]
     return safe(subject), "\n".join(body)
 
 
-def recipients(staff: list[dict], kind: str) -> list[str]:
-    """record_ids that should receive this kind of digest (raw-coded export)."""
+def recipients(staff, kind):
+    """record_ids for this kind of digest, academic/active first (who goes first under the cap)."""
     out = []
     for r in staff:
         if (r.get("category") not in ELIGIBLE_CATEGORIES or r.get("employment_status") == "4"
-                or r.get("pref_funding") == "0" or r.get("unsubscribed_all") == "1"):
+                or r.get("pref_funding") == "0" or r.get("unsubscribed_all") == "1"
+                or not EMAIL_RE.match((r.get("email") or "").strip())):
             continue
-        monthly = r.get("alert_frequency") == "3"
-        if (kind == "monthly") == monthly:
-            out.append(r["record_id"])
-    return out
+        if (kind == "monthly") == (r.get("alert_frequency") == "3"):
+            out.append(r)
+    out.sort(key=lambda r: (r.get("category") != "1", r.get("employment_status") != "1",
+                            int(r["record_id"]) if str(r["record_id"]).isdigit() else 0))
+    return [r["record_id"] for r in out]
+
+
+def compose(sender, to, subject, body, prefs_link):
+    msg = EmailMessage()
+    msg["From"] = formataddr(("MUHAS Office of Sponsored Programmes", sender))
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid(domain="muhas-osp.github.io")
+    msg["List-Unsubscribe"] = f"<mailto:{sender}?subject=unsubscribe>"
+    footer = (f"Update your research interests or unsubscribe: {prefs_link}" if prefs_link
+              else f"To unsubscribe, reply with the word unsubscribe.")
+    msg.set_content(f"Dear colleague,\n\n{body}\n\n{footer}\n")
+    return msg
+
+
+def take_batch(pending, sent_today, cap):
+    room = max(0, cap - sent_today)
+    return pending[:room], pending[room:]
 
 
 # --------------------------------------------------------------------------- #
-# REDCap I/O
+# REDCap + Gmail
 # --------------------------------------------------------------------------- #
-def export_staff(api_url: str, token: str) -> list[dict]:
+def export_staff(api_url, token):
     body = {"token": token, "content": "record", "action": "export", "format": "json",
             "type": "flat", "rawOrLabel": "raw", "returnFormat": "json"}
     body.update({f"fields[{i}]": f for i, f in enumerate(STAFF_FIELDS)})
@@ -150,76 +171,140 @@ def export_staff(api_url: str, token: str) -> list[dict]:
     return data
 
 
-def import_digests(api_url: str, token: str, rows: list[dict], batch: int = 100) -> int:
-    done = 0
-    for i in range(0, len(rows), batch):
-        res = fg._post(api_url, {"token": token, "content": "record", "action": "import",
-                                 "format": "json", "type": "flat", "overwriteBehavior": "overwrite",
-                                 "data": json.dumps(rows[i:i + batch]), "returnContent": "count",
-                                 "returnFormat": "json"})
-        if isinstance(res, dict) and "error" in res:
-            raise RuntimeError(f"REDCap API error: {res['error']}")
-        done += int(res.get("count", 0)) if isinstance(res, dict) else 0
-    return done
+def survey_link(api_url, token, record_id):
+    """Personal link to the staff_preferences survey, or '' if unavailable."""
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+    try:
+        req = Request(api_url, data=urlencode({"token": token, "content": "surveyLink",
+                                               "format": "json", "instrument": "staff_preferences",
+                                               "record": record_id, "returnFormat": "json"}).encode(),
+                      headers={"User-Agent": "muhas-funding-board/1.0"})
+        with urlopen(req, timeout=60) as resp:
+            link = resp.read().decode().strip()
+        return link if link.startswith("https://") else ""
+    except Exception:
+        return ""
+
+
+def load_state():
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {"sent_ids": [], "monthly": "", "outbox": {}, "pending": [], "sent_on": {}}
 
 
 def main() -> int:
     now = datetime.now(TZ)
     today = now.date()
-    dry = os.environ.get("DIGEST_DRY_RUN", "") == "1"
-    force = os.environ.get("DIGEST_FORCE", "") == "1"
-    only = {x.strip() for x in os.environ.get("DIGEST_ONLY_RECORDS", "").split(",") if x.strip()}
-    token = os.environ.get("REDCAP_STAFF_TOKEN", "").strip()
-    api_url = os.environ.get("REDCAP_API_URL", "").strip() or fg.DEFAULT_API_URL
+    env = os.environ.get
+    dry, force = env("DIGEST_DRY_RUN", "") == "1", env("DIGEST_FORCE", "") == "1"
+    only = [x.strip() for x in env("DIGEST_ONLY_RECORDS", "").split(",") if x.strip()]
+    test_to = env("DIGEST_TEST_TO", "").strip()
+    cap = int(env("DIGEST_DAILY_CAP", "") or 499)
+    token = env("REDCAP_STAFF_TOKEN", "").strip()
+    api_url = env("REDCAP_API_URL", "").strip() or fg.DEFAULT_API_URL
+    sender = env("GMAIL_USER", "").strip() or "ospmuhas@gmail.com"
+    password = env("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
 
     grants = json.loads((ROOT / "data/grants.json").read_text(encoding="utf-8"))
-    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {"sent_ids": [], "monthly": ""}
+    state = load_state()
     sent_ids = set(state.get("sent_ids", []))
-    kinds = ["weekly"] + (["monthly"] if state.get("monthly") != today.strftime("%Y-%m") else [])
+    testing = bool(only or test_to)
 
-    digests = {}
-    for kind in kinds:
-        d = build_digest(kind, grants, sent_ids, today)
-        if d is None and force and grants:
-            d = build_digest("monthly", grants, sent_ids, today)
-        if d:
-            digests[kind] = d
-    if not digests:
-        annotate("notice", f"Nothing new or closing within {CLOSING_DAYS} days: no digest this week")
+    # 1. Build: Mondays (or forced / testing) create this week's digests
+    digests = state.get("outbox", {})
+    building = testing or force or (today.weekday() == 0 and state.get("built") != today.isoformat())
+    if building:
+        kinds = ["weekly"] + (["monthly"] if state.get("monthly") != today.strftime("%Y-%m") else [])
+        digests = {}
+        for kind in kinds:
+            d = build_digest(kind, grants, sent_ids, today)
+            if d is None and (force or testing) and grants:
+                d = build_digest("monthly", grants, sent_ids, today)
+            if d:
+                digests[kind] = d
+        if not digests:
+            annotate("notice", f"Nothing new or closing within {CLOSING_DAYS} days: no digest this week")
+            if not dry and not testing:
+                state["built"] = today.isoformat()
+                STATE_FILE.write_text(json.dumps(state, indent=2) + "\n")
+            return 0
+        for kind, (subject, body) in digests.items():
+            print(f"\n===== {kind} digest =====\nSubject: {subject}\n\n{body}\n")
+
+    if test_to:
+        if dry:
+            annotate("notice", f"DRY RUN: would send a sample to the test address")
+            return 0
+        if not password:
+            annotate("error", "GMAIL_APP_PASSWORD secret is not set"); return 1
+        subject, body = next(iter(digests.values()))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as smtp:
+            smtp.login(sender, password)
+            smtp.send_message(compose(sender, test_to, "[TEST] " + subject, body, ""))
+        annotate("notice", "Sample digest sent to the test address")
         return 0
-    for kind, (subject, body) in digests.items():
-        print(f"\n===== {kind} digest =====\nSubject: {subject}\n\n{body}\n")
-    if not token:
-        annotate("warning", "REDCAP_STAFF_TOKEN is not set: digest built but not queued")
-        return 0 if dry else 1
 
+    if not token:
+        annotate("warning", "REDCAP_STAFF_TOKEN is not set: nothing sent"); return 0 if dry else 1
     try:
         staff = export_staff(api_url, token)
-        rows, counts = [], {}
-        stamp = now.strftime("%Y-%m-%d %H:%M:%S")
-        for kind, (subject, body) in digests.items():
-            ids = [i for i in recipients(staff, kind) if not only or i in only]
-            counts[kind] = len(ids)
-            rows += [{"record_id": i, "digest_queued": stamp, "digest_kind": kind,
-                      "digest_subject": subject, "digest_body": body,
-                      "funding_digest_complete": "2"} for i in ids]
-        summary = ", ".join(f"{k} {v}" for k, v in counts.items())
-        if dry:
-            annotate("notice", f"DRY RUN: would queue {len(rows)} digests ({summary}) from {len(staff)} staff records")
-            return 0
-        n = import_digests(api_url, token, rows)
     except RuntimeError as exc:
-        hint = " (a 403 here usually means the server firewall rejected the text)" if "403" in str(exc) else ""
-        annotate("error", f"queueing failed: {exc}{hint}")
-        return 2
+        annotate("error", f"REDCap export failed: {exc}"); return 2
+    by_id = {r["record_id"]: r for r in staff}
 
-    if not only:  # test sends to a few records do not mark calls as announced
-        sent_ids |= {g["id"] for g in grants}
-        state = {"sent_ids": sorted(sent_ids, key=lambda x: (len(x), x)), "last_queued": stamp,
-                 "monthly": today.strftime("%Y-%m") if "monthly" in digests else state.get("monthly", "")}
+    pending = [] if testing else list(state.get("pending", []))
+    if building:
+        new_pending = [[rid, kind] for kind in digests for rid in recipients(staff, kind)]
+        if only:
+            new_pending = [p for p in new_pending if p[0] in only] or [[rid, next(iter(digests))] for rid in only]
+        if pending and not testing:
+            annotate("warning", f"{len(pending)} unsent from the previous digest were replaced by this week's")
+        pending = new_pending
+
+    sent_today = state.get("sent_on", {}).get(today.isoformat(), 0)
+    batch, rest = take_batch(pending, sent_today, cap)
+    if dry:
+        annotate("notice", f"DRY RUN: {len(pending)} queued, would send {len(batch)} today "
+                           f"(cap {cap}, already sent today {sent_today}), {len(rest)} would wait")
+        return 0
+    if batch and not password:
+        annotate("error", "GMAIL_APP_PASSWORD secret is not set"); return 1
+
+    sent, failed, unsent = 0, 0, []
+    if batch:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as smtp:
+            smtp.login(sender, password)
+            for i, (rid, kind) in enumerate(batch):
+                r = by_id.get(rid)
+                email = (r or {}).get("email", "").strip()
+                if not r or not EMAIL_RE.match(email) or r.get("unsubscribed_all") == "1" or kind not in digests:
+                    continue                      # left, unsubscribed or email removed since queueing
+                subject, body = digests[kind]
+                try:
+                    smtp.send_message(compose(sender, email, subject, body, survey_link(api_url, token, rid)))
+                    sent += 1
+                except smtplib.SMTPRecipientsRefused:
+                    failed += 1                   # bad address: logged as a count only
+                except (smtplib.SMTPDataError, smtplib.SMTPSenderRefused) as exc:
+                    if exc.smtp_code in (421, 450, 451, 550, 552, 554) and "limit" in str(exc).lower():
+                        unsent = batch[i:]        # Gmail daily limit reached: resume tomorrow
+                        break
+                    failed += 1
+                time.sleep(0.5)
+
+    if not testing:
+        state["pending"] = unsent + rest
+        state["outbox"] = digests if state["pending"] else {}
+        state["sent_on"] = {today.isoformat(): sent_today + sent}
+        if building:
+            state["built"] = today.isoformat()
+            state["sent_ids"] = sorted(sent_ids | {g["id"] for g in grants}, key=lambda x: (len(x), x))
+            if "monthly" in digests:
+                state["monthly"] = today.strftime("%Y-%m")
         STATE_FILE.write_text(json.dumps(state, indent=2) + "\n")
-    annotate("notice", f"Queued {n} digests ({summary}){' [test records only]' if only else ''}; "
-                       "REDCap Alerts sends them")
+    annotate("notice", f"Sent {sent}, failed {failed}, waiting for tomorrow {len(unsent) + len(rest)}"
+                       + (" [test records only]" if only else ""))
     return 0
 
 
