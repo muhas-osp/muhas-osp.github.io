@@ -269,7 +269,8 @@ def main() -> int:
                            f"(cap {cap}, already sent today {sent_today}), {len(rest)} would wait")
         return 0
     if batch and not password:
-        annotate("error", "GMAIL_APP_PASSWORD secret is not set"); return 1
+        annotate("warning", "GMAIL_APP_PASSWORD secret is not set: nothing sent, the digest waits")
+        return 0
 
     sent, failed, unsent = 0, 0, []
     if batch:
