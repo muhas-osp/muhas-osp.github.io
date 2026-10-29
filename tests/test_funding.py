@@ -144,6 +144,13 @@ class SpreadsheetImport(unittest.TestCase):
         self.assertEqual(out['funder_name'], 'National Institutes of Health')
         self.assertEqual(out['deadline_date'], '2025-02-26')
 
+    def test_no_semicolons_in_imported_text(self):
+        # the MUHAS server firewall returns 403 Forbidden on REDCap saves containing ';'
+        out = ic.to_redcap({'application_url': 'https://www.grants.nih.gov/funding/explore-nih-opportunities',
+                            'grant_title': 'A; B', 'funder_name': 'NIH', 'osp_notes': 'x; y',
+                            '_deadline_raw': '15 December 2026 (NIH listing; confirm)'}, 's.xlsx', 1)
+        self.assertFalse([k for k, v in out.items() if ';' in v], out)
+
 
 if __name__ == '__main__':
     unittest.main()

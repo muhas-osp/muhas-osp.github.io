@@ -173,6 +173,11 @@ def rows_from_workbook(path: Path):
                 section_funder = funder_from_section(first)
 
 
+def firewall_safe(value: str) -> str:
+    """The MUHAS server firewall blocks REDCap form saves containing ';'. Use ',' instead."""
+    return re.sub(r"\s*;\s*", ", ", value)
+
+
 def to_redcap(rec: dict, source: str, rid: int) -> dict:
     out = {f: "" for f in FIELDS}
     out["record_id"] = str(rid)
@@ -215,14 +220,14 @@ def to_redcap(rec: dict, source: str, rid: int) -> dict:
     if len(rounds) > 6:
         notes.append(f"{len(rounds) - 6} extra round(s) not imported.")
     if "explore-nih-opportunities" in out["application_url"]:
-        notes.append("Link is NIH search page, not the specific RFA; replace before verifying.")
+        notes.append("Link is NIH search page, not the specific RFA. Replace it before verifying.")
     if clean(rec.get("osp_notes")):
         notes.append(clean(rec["osp_notes"]))
     out["osp_notes"] = " ".join(notes)
 
     out["osp_status"] = "1"        # Pending — always, regardless of sheet
     out["entry_method"] = "2"      # Spreadsheet import
-    return out
+    return {k: v if k == "application_url" else firewall_safe(v) for k, v in out.items()}
 
 
 def main() -> int:

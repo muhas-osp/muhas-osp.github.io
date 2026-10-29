@@ -25,6 +25,7 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 import json
 import os
 import sys
@@ -162,6 +163,11 @@ def extract_grant_fields(email_text: str, backend: str | None = None) -> dict:
     return data
 
 
+def firewall_safe(value: str) -> str:
+    """The MUHAS server firewall blocks REDCap form saves containing ';'. Use ',' instead."""
+    return re.sub(r"\s*;\s*", ", ", value)
+
+
 def push_to_redcap(fields: dict, source_text: str) -> str:
     """Import one record as Pending OSP verification; returns the new record ID."""
     s = lambda k: "" if fields.get(k) is None else str(fields[k])
@@ -184,6 +190,7 @@ def push_to_redcap(fields: dict, source_text: str) -> str:
         rec[f"eligible_regions___{code}"] = "1" if label in fields.get("eligible_regions", []) else "0"
     for label, code in CAREER_CODES.items():
         rec[f"career_stage___{code}"] = "1" if label in fields.get("career_stages", []) else "0"
+    rec = {k: v if k == "application_url" else firewall_safe(v) for k, v in rec.items()}
 
     r = requests.post(os.environ["REDCAP_API_URL"], timeout=60, data={
         "token": os.environ["REDCAP_IMPORT_TOKEN"],
