@@ -2,7 +2,8 @@ name: Weekly funding digest
 
 # Daily 06:37 EAT. Mondays: build the digest from data/grants.json and queue eligible staff.
 # Every day: email queued staff from ospmuhas@gmail.com, at most 499 per day.
-# Secrets: REDCAP_STAFF_TOKEN (staff project, export), GMAIL_APP_PASSWORD (Google app password).
+# Secrets: REDCAP_STAFF_TOKEN (staff project, export), GMAIL_APP_PASSWORD (Google app password),
+# GMAIL_USER (optional sending account, default ospmuhas@gmail.com).
 # Addresses are read at send time only; logs and data/digest_state.json hold counts and record_ids.
 
 on:
@@ -50,6 +51,7 @@ jobs:
         env:
           REDCAP_STAFF_TOKEN: ${{ secrets.REDCAP_STAFF_TOKEN }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
           DIGEST_TEST_TO: ${{ inputs.test_to }}
           DIGEST_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
           DIGEST_ONLY_RECORDS: ${{ inputs.only_records }}
