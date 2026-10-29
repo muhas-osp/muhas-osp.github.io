@@ -171,8 +171,12 @@ def export_staff(api_url, token):
     return data
 
 
+LINK_ERRORS: list[str] = []
+
+
 def survey_link(api_url, token, record_id):
-    """Personal link to the staff_preferences survey, or '' if unavailable."""
+    """Personal link to the staff_preferences survey, or '' (first reason kept in LINK_ERRORS)."""
+    from urllib.error import HTTPError
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
     try:
@@ -182,9 +186,16 @@ def survey_link(api_url, token, record_id):
                       headers={"User-Agent": "muhas-funding-board/1.0"})
         with urlopen(req, timeout=60) as resp:
             link = resp.read().decode().strip()
-        return link if link.startswith("https://") else ""
-    except Exception:
-        return ""
+        if link.startswith("https://"):
+            return link
+        reason = link[:200]
+    except HTTPError as exc:
+        reason = f"HTTP {exc.code}: {exc.read()[:200].decode('utf-8', 'replace')}"
+    except Exception as exc:
+        reason = type(exc).__name__
+    if not LINK_ERRORS:
+        LINK_ERRORS.append(reason)
+    return ""
 
 
 def load_state():
@@ -304,6 +315,9 @@ def main() -> int:
             if "monthly" in digests:
                 state["monthly"] = today.strftime("%Y-%m")
         STATE_FILE.write_text(json.dumps(state, indent=2) + "\n")
+    if LINK_ERRORS:
+        annotate("warning", f"Preferences link unavailable, emails used the reply-to-unsubscribe line. "
+                            f"REDCap said: {LINK_ERRORS[0]}")
     annotate("notice", f"Sent {sent}, failed {failed}, waiting for tomorrow {len(unsent) + len(rest)}"
                        + (" [test records only]" if only else ""))
     return 0
