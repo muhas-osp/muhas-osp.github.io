@@ -1,5 +1,59 @@
 [
   {
+    "application_url": "https://www.grants.nih.gov/funding/explore-nih-opportunities",
+    "award_budget": "",
+    "award_period": "",
+    "call_reference": "RFA-HG-27-010",
+    "career_stages": [],
+    "deadline_note": "NIH listing; precise cutoff/time zone requires OSP confirmation",
+    "deadlines": [
+      "2026-12-15"
+    ],
+    "eligible_applicants": "",
+    "eligible_regions": [
+      "Tanzania"
+    ],
+    "funder_name": "National Institutes of Health",
+    "funding_currency": "",
+    "grant_title": "Computational Modeling and Analysis of the Impact of Genomic Variation on Function (UM1)",
+    "id": "3",
+    "intake_id": "INT-2026-003",
+    "max_funding_amount": null,
+    "next_deadline": "2026-12-15",
+    "opening_date": null,
+    "research_area": "Computational genomics; bioinformatics",
+    "rolling": false,
+    "snapshot_summary": "",
+    "tz_eligibility": "Pending assessment"
+  },
+  {
+    "application_url": "https://www.grants.nih.gov/funding/explore-nih-opportunities",
+    "award_budget": "",
+    "award_period": "",
+    "call_reference": "RFA-HG-27-007",
+    "career_stages": [],
+    "deadline_note": "NIH listing; precise cutoff/time zone requires OSP confirmation",
+    "deadlines": [
+      "2026-12-15"
+    ],
+    "eligible_applicants": "",
+    "eligible_regions": [
+      "Tanzania"
+    ],
+    "funder_name": "National Institutes of Health",
+    "funding_currency": "",
+    "grant_title": "Systematic Characterization of Genomic Variation to Assess Effects of Individual Variants on Genome Function and Phenotype (UM1)",
+    "id": "2",
+    "intake_id": "INT-2026-002",
+    "max_funding_amount": null,
+    "next_deadline": "2026-12-15",
+    "opening_date": null,
+    "research_area": "Functional genomics; variant interpretation",
+    "rolling": false,
+    "snapshot_summary": "",
+    "tz_eligibility": "Eligible"
+  },
+  {
     "application_url": "https://wellcome.org/research-funding/schemes/wellcome-career-development-awards",
     "award_budget": "",
     "award_period": "",
