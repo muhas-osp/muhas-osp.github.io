@@ -6,7 +6,7 @@
 "grant_title","grant_details","","text","Funding opportunity title","","","","","","","","y","","","","",""
 "application_url","grant_details","","text","Direct link to the call","","Link to the specific announcement, not a funder landing/search page","","","","","","y","","","","",""
 "snapshot_summary","grant_details","Snapshot","notes","Snapshot summary","","Two sentences: what the call funds and its core objective","","","","","","","","","","",""
-"research_area","grant_details","","text","Research area(s)","","Separate with semicolons, e.g. Genomics; bioinformatics","","","","","","","","","","",""
+"research_area","grant_details","","text","Research area(s)","","Separate with commas, e.g. Genomics, bioinformatics (no semicolons: the server firewall blocks them)","","","","","","","","","","",""
 "tz_eligibility","grant_details","Eligibility","dropdown","Tanzania / MUHAS eligibility","1, Eligible | 2, Not eligible | 3, Pending assessment","","","","","","","","","","","","@DEFAULT='3'"
 "eligible_regions","grant_details","","checkbox","Eligible regions","1, Tanzania | 2, East Africa | 3, Sub-Saharan Africa | 4, Africa (continent-wide) | 5, LMICs | 6, Global","","","","","","","","","","","",""
 "career_stage","grant_details","","checkbox","Career stage","1, Early-career | 2, Mid-career | 3, Senior / established | 4, Any stage","","","","","","","","","","","",""

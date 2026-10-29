@@ -1,0 +1,61 @@
+name: Weekly funding digest
+
+# Mondays 06:37 EAT: build the digest from data/grants.json and write it into the
+# funding_digest form of eligible staff records; a REDCap Alert emails it.
+# Secret required: REDCAP_STAFF_TOKEN (staff project: export of the eligibility
+# fields, import of funding_digest). No email addresses or names are read.
+
+on:
+  schedule:
+    - cron: '37 3 * * 1'   # Monday 06:37 Africa/Dar_es_Salaam
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and count only (write nothing to REDCap)
+        type: boolean
+        default: true
+      only_records:
+        description: Send only to these record_ids, comma-separated (testing)
+        type: string
+        default: ''
+      force:
+        description: Send even if nothing is new or closing soon
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: funding-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test
+        run: python -m unittest discover -s tests
+      - name: Queue digest in REDCap
+        env:
+          REDCAP_STAFF_TOKEN: ${{ secrets.REDCAP_STAFF_TOKEN }}
+          DIGEST_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          DIGEST_ONLY_RECORDS: ${{ inputs.only_records }}
+          DIGEST_FORCE: ${{ inputs.force && '1' || '' }}
+        run: python scripts/queue_digest.py
+      - name: Save digest state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/digest_state.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Funding digest queued ($(TZ=Africa/Dar_es_Salaam date +%F))"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

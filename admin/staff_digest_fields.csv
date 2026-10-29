@@ -1,0 +1,5 @@
+"Variable / Field Name","Form Name","Section Header","Field Type","Field Label","Choices, Calculations, OR Slider Labels","Field Note","Text Validation Type OR Show Slider Number","Text Validation Min","Text Validation Max","Identifier?","Branching Logic (Show field only if...)","Required Field?","Custom Alignment","Question Number (surveys only)","Matrix Group Name","Matrix Ranking?","Field Annotation"
+"digest_queued","funding_digest","Weekly funding digest (filled by the OSP script, sent by a REDCap Alert)","text","Digest queued at","","Written by the weekly OSP script. The email Alert fires within an hour of this time","datetime_seconds_ymd","","","","","","","","","","@READONLY"
+"digest_kind","funding_digest","","text","Digest type","","weekly or monthly","","","","","","","","","","","@READONLY"
+"digest_subject","funding_digest","","text","Digest subject","","","","","","","","","","","","","@READONLY"
+"digest_body","funding_digest","","notes","Digest text","","Overwritten each week. Do not edit","","","","","","","","","","","@READONLY"
