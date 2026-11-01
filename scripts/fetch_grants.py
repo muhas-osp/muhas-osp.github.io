@@ -21,7 +21,7 @@ Required:
   REDCAP_GRANTS_TOKEN  project token for an API user with *export-only* rights
 Optional:
   REDCAP_API_URL       default https://utafiti.muhas.ac.tz/api/
-  REDCAP_FORM          instrument name (default: grant_details)
+  REDCAP_FORM          instrument name(s), comma-separated (default: grant_details,osp_review)
   GRANTS_OUTPUT        output path (default: data/grants.json)
   PORTAL_TZ            timezone that defines "today" (default: Africa/Dar_es_Salaam)
   PUBLISH_UNVERIFIED   "1" to publish regardless of OSP status (testing only)
@@ -81,6 +81,19 @@ def _post(api_url: str, body: dict[str, str], attempts: int = 4) -> Any:
 
 
 def fetch_records(api_url: str, token: str, form: str) -> list[dict[str, Any]]:
+    """Export one or more instruments (comma-separated); falls back to the first one if a
+    later instrument does not exist yet (e.g. osp_review before the dictionary upload)."""
+    forms = [f.strip() for f in form.split(",") if f.strip()]
+    try:
+        return _fetch_forms(api_url, token, forms)
+    except RuntimeError as exc:
+        if len(forms) > 1 and any(f in str(exc) for f in forms[1:]):
+            log.warning("instrument(s) %s not found; exporting %s only", forms[1:], forms[0])
+            return _fetch_forms(api_url, token, forms[:1])
+        raise
+
+
+def _fetch_forms(api_url: str, token: str, forms: list[str]) -> list[dict[str, Any]]:
     """Export one instrument as flat JSON with labels.
 
     rawOrLabel=label + exportCheckboxLabel=true: checkbox columns
@@ -93,7 +106,7 @@ def fetch_records(api_url: str, token: str, form: str) -> list[dict[str, Any]]:
         "action": "export",
         "format": "json",
         "type": "flat",
-        "forms[0]": form,
+        **{f"forms[{i}]": f for i, f in enumerate(forms)},
         "rawOrLabel": "label",
         "rawOrLabelHeaders": "raw",
         "exportCheckboxLabel": "true",
@@ -274,7 +287,7 @@ def main() -> int:
         annotate("warning", "REDCAP_GRANTS_TOKEN secret is not set or empty; nothing fetched")
         return 0
 
-    form = os.environ.get("REDCAP_FORM", "grant_details")
+    form = os.environ.get("REDCAP_FORM", "grant_details,osp_review")
     output = Path(os.environ.get("GRANTS_OUTPUT", ROOT / "data/grants.json"))
     today = datetime.now(ZoneInfo(os.environ.get("PORTAL_TZ", "Africa/Dar_es_Salaam"))).date()
     require_verified = os.environ.get("PUBLISH_UNVERIFIED", "0") != "1"

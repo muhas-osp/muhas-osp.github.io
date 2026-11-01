@@ -108,3 +108,28 @@ Privacy: addresses are exported from REDCap at send time and kept in memory only
    in `test_to` (one sample) or your record_id in `only_records`.
 
 Bounces and replies arrive in the ospmuhas@gmail.com inbox; fix those addresses in REDCap.
+
+## Discovery agent (Claude API): drafts calls for OSP to verify
+
+`.github/workflows/discover.yml` (Tuesdays 04:17 EAT, or manual) runs `agent/agent.py`:
+
+1. **Discovery**: one short Claude request per funder in `agent/sources.csv` (web_search / web_fetch)
+   finds open calls relevant to MUHAS.
+2. **Extraction**: one fresh request per call (Haiku-class model) fetches the page and fills the
+   `grant_details` fields via the `create_pending` tool; each record is validated against
+   `admin/grants_data_dictionary.csv`. Uncertain deadline, time zone or eligibility → `needs_review = 1`.
+3. **Pre-checks**: duplicates skipped; dead links and changed deadlines on existing records flagged;
+   past-deadline calls dropped.
+4. **Output**: `agent_report_<run>.xlsx` (new drafts, candidates and outcomes, existing-record flags,
+   draft digest, token usage) as a workflow artifact, and `data/agent_usage.csv` for cost reporting.
+
+Dry run by default. Scheduled runs write to REDCap only when the repository variable `AGENT_LIVE` = `1`.
+Drafts arrive with `entry_method` = AI-parsed and an empty `osp_status` (that field is on the separate
+`osp_review` form, which the agent's REDCap user cannot edit), so nothing is published until OSP sets
+*Verified - publish*. Fetched web content is treated as data; secrets never enter prompts or logs;
+caps per run: `AGENT_MAX_SEARCHES`, `AGENT_MAX_FETCHES`, `AGENT_MAX_RECORDS`.
+
+Billing: the run uses whichever account owns `ANTHROPIC_API_KEY`; switching from the pilot account to
+OSP's is a secret change only. `agent/prices.json` (fill once from the pricing page) gives cost
+estimates; `python agent/pilot_report.py --export <REDCap export>.csv` summarises runs, approval rate,
+needs_review rate and cost.

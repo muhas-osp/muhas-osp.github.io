@@ -113,6 +113,17 @@ class Writing(unittest.TestCase):
                 self.assertEqual(fg.main(), 0)
             self.assertEqual(p.read_text(), '["KEEP"]')
 
+    def test_missing_osp_review_form_falls_back(self):
+        calls = []
+        def post(url, body):
+            calls.append(sorted(k for k in body if k.startswith('forms[')))
+            if 'forms[1]' in body:
+                return {'error': 'The following values in the parameter "forms" are not valid: "osp_review"'}
+            return [rec()]
+        with patch.object(fg, '_post', side_effect=post):
+            self.assertEqual(len(fg.fetch_records('https://x/api/', 't', 'grant_details,osp_review')), 1)
+        self.assertEqual(calls, [['forms[0]', 'forms[1]'], ['forms[0]']])
+
     def test_api_error_payload_raises(self):
         with patch.object(fg, '_post', return_value={'error': 'You do not have permissions'}):
             with self.assertRaises(RuntimeError):

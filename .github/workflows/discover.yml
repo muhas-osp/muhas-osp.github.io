@@ -1,0 +1,85 @@
+name: Discover funding opportunities (AI agent)
+
+# Weekly: the Claude-based discovery agent (agent/agent.py) searches funder sources, extracts open
+# calls, checks duplicates / links / deadlines and drafts summaries. Output: an .xlsx report and a
+# usage log (artifacts). In LIVE mode it also writes AI drafts to REDCap for OSP to verify; it never
+# approves or publishes. The publish + email workflows are separate and unchanged.
+#
+# Secrets: ANTHROPIC_API_KEY (whoever pays: replace this secret to switch billing, no code change),
+#          REDCAP_AGENT_TOKEN (agent REDCap user: export + import on grant_details only).
+# Scheduled runs stay DRY RUN until the repository variable AGENT_LIVE is set to 1
+# (Settings > Secrets and variables > Actions > Variables).
+
+on:
+  schedule:
+    - cron: '17 1 * * 2'   # Tuesday 04:17 Africa/Dar_es_Salaam: drafts ready for OSP's week
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry run (report only, nothing written to REDCap)
+        type: boolean
+        default: true
+      funders:
+        description: Only these funders (comma-separated words, e.g. "Wellcome,NIH"); empty = all
+        type: string
+        default: ''
+      max_searches:
+        description: Max web searches this run
+        type: string
+        default: '40'
+      max_records:
+        description: Max new drafts this run
+        type: string
+        default: '25'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: discovery-agent
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install agent dependencies
+        run: pip install anthropic openpyxl
+      - name: Test
+        run: python -m unittest discover -s tests
+      - name: Run discovery agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REDCAP_AGENT_TOKEN: ${{ secrets.REDCAP_AGENT_TOKEN }}
+          AGENT_DRY_RUN: ${{ ((github.event_name == 'workflow_dispatch' && inputs.dry_run) || (github.event_name == 'schedule' && vars.AGENT_LIVE != '1')) && '1' || '0' }}
+          AGENT_FUNDERS: ${{ inputs.funders }}
+          AGENT_MAX_SEARCHES: ${{ inputs.max_searches || '40' }}
+          AGENT_MAX_RECORDS: ${{ inputs.max_records || '25' }}
+          AGENT_OUT: agent_out
+        run: python agent/agent.py
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovery-report-${{ github.run_number }}
+          path: agent_out/
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Save usage log
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/agent_usage.csv 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Discovery agent usage ($(TZ=Africa/Dar_es_Salaam date +%F))"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

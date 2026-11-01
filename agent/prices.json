@@ -1,0 +1,8 @@
+{
+  "_note": "USD per million tokens for each model, from the Claude pricing page. Fill in once; the run report then shows an estimated cost. The Console usage page is the authoritative bill.",
+  "web_search_per_1000": 10.0,
+  "models": {
+    "claude-sonnet-5-5": {"input": null, "output": null, "cache_write": null, "cache_read": null},
+    "claude-haiku-5-5": {"input": null, "output": null, "cache_write": null, "cache_read": null}
+  }
+}
